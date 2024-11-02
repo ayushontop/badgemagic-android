@@ -1,18 +1,32 @@
-import 'package:badgemagic/providers/badge_message_provider.dart';
+import 'package:badgemagic/bademagic_module/utils/byte_array_utils.dart';
+import 'package:badgemagic/bademagic_module/utils/toast_utils.dart';
+import 'package:badgemagic/badge_effect/flash_effect.dart';
+import 'package:badgemagic/badge_effect/marquee_effect.dart';
+import 'package:badgemagic/providers/animation_badge_provider.dart';
+import 'package:badgemagic/providers/saved_badge_provider.dart';
+import 'package:badgemagic/providers/speed_dial_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class SaveBadgeDialog extends StatelessWidget {
+  final SpeedDialProvider speed;
+  final bool isInverse;
+  final AnimationBadgeProvider animationProvider;
   const SaveBadgeDialog({
     super.key,
     required this.textController,
+    required this.isInverse,
+    required this.animationProvider,
+    required this.speed,
   });
 
   final TextEditingController textController;
 
   @override
   Widget build(BuildContext context) {
-    BadgeMessageProvider badgeMessageProvider = BadgeMessageProvider();
+    SavedBadgeProvider savedBadgeProvider = SavedBadgeProvider();
+    TextEditingController badgeNameController = TextEditingController();
+    badgeNameController.text = DateTime.now().toString();
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(5.r),
@@ -20,7 +34,9 @@ class SaveBadgeDialog extends StatelessWidget {
       child: Container(
         height: 150.h, // Increase height for TextField space
         width: 300.w, // Increased width
-        padding: const EdgeInsets.all(10), // Added padding for better layout
+        padding: EdgeInsets.symmetric(
+            horizontal: 20.w,
+            vertical: 10.h), // Added padding for better layout
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.start,
@@ -44,7 +60,7 @@ class SaveBadgeDialog extends StatelessWidget {
             const SizedBox(
                 height: 10), // Space between file name and text field
             TextField(
-              controller: textController,
+              controller: badgeNameController,
               autofocus: true,
               onTap: () {
                 // Select all text when the TextField is tapped
@@ -76,13 +92,25 @@ class SaveBadgeDialog extends StatelessWidget {
                       style: TextStyle(color: Colors.red),
                     )),
                 TextButton(
-                    onPressed: () {
-                      badgeMessageProvider.saveBadgeData(textController.text);
-                    },
-                    child: const Text(
-                      'Save',
-                      style: TextStyle(color: Colors.red),
-                    )),
+                  onPressed: () {
+                    logger.i(
+                        "Flash Effect ${animationProvider.isEffectActive(FlashEffect())} , Marquee Effect ${animationProvider.isEffectActive(MarqueeEffect())} , invert $isInverse , speed ${speed.getOuterValue()} , animation ${animationProvider.getAnimationIndex() ?? 1}");
+                    savedBadgeProvider.saveBadgeData(
+                        badgeNameController.text,
+                        textController.text,
+                        animationProvider.isEffectActive(FlashEffect()),
+                        animationProvider.isEffectActive(MarqueeEffect()),
+                        isInverse,
+                        speed.getOuterValue(),
+                        animationProvider.getAnimationIndex() ?? 1);
+                    ToastUtils().showToast("Badge Saved Successfully");
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Save',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
               ],
             )
           ],
