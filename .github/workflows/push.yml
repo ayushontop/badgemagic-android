@@ -17,43 +17,32 @@ jobs:
       VERSION_CODE: ${{ steps.flutter-version.outputs.VERSION_CODE }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Common Workflow
         uses: ./.github/actions/common
-
       - name: Hydrate and Update Version
         id: flutter-version
         run: |
+          # Configure git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
+
+          # Increment version number and code
           git clone --branch=version https://${{ github.repository_owner }}:${{ github.token }}@github.com/${{ github.repository }} version
           cd version
-
-          # Read and increment version name
           IFS='.' read -r major minor patch < versionName.txt
-          current_patch_version_name="$major.$minor.$patch"
-          echo "VERSION_NAME=$current_patch_version_name" >> $GITHUB_OUTPUT
-          
-          next_patch=$((patch + 1))
-          next_patch_version_name="$major.$minor.$next_patch"
-          echo "$next_patch_version_name" > versionName.txt
+          echo "VERSION_NAME=$major.$minor.$patch" >> $GITHUB_OUTPUT
+          echo "$major.$minor.$((patch+1))" > versionName.txt
 
-          # Read and increment version code
           read -r version_code < versionCode.txt
-          echo "VERSION_CODE=$version_code" >> $GITHUB_OUTPUT
-          
-          new_version_code=$((version_code + 1))
-          echo "$new_version_code" > versionCode.txt
+          echo "VERSION_CODE=$((version_code + 1))" > versionCode.txt
 
-          # Force push to version branch
+          # Push version updates to version branch
           git checkout --orphan temporary
           git add --all .
-          git commit -am "[Auto] Update versionName: $next_patch_version_name & versionCode: $new_version_code ($(date +%Y-%m-%d.%H:%M:%S))"
+          git commit -am "[Auto] Update versions"
           git branch -D version
           git branch -m version
           git push --force origin version
-  
 
   android:
     name: Android Flutter Build
@@ -73,7 +62,7 @@ jobs:
           ENCRYPTED_F10B5E0E5262_KEY: ${{ secrets.ENCRYPTED_F10B5E0E5262_KEY }}
         run: |
           bash scripts/prep-key.sh
-  
+
       - name: Android Workflow
         uses: ./.github/actions/android
         with:
@@ -83,19 +72,7 @@ jobs:
           VERSION_NAME: ${{needs.common.outputs.VERSION_NAME}}
           VERSION_CODE: ${{needs.common.outputs.VERSION_CODE}}
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: APK Generated
-          path: build/app/outputs/flutter-apk
-  
-      - name: Upload AAB Release
-        uses: actions/upload-artifact@v4
-        with:
-          name: AAB Generated
-          path: build/app/outputs/bundle
-      
-      - name: Upload APK/AAB to apk branch
+      - name: Upload APK to apk Branch
         if: ${{ github.repository == 'fossasia/badgemagic-android' }}
         run: |
           git config --global user.name "github-actions[bot]"
@@ -103,93 +80,27 @@ jobs:
 
           git clone --branch=apk https://${{ github.repository_owner }}:${{ github.token }}@github.com/${{ github.repository }} apk
           cd apk
-          
-          branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
 
-          echo "Removing previous files from branch"
+          # Remove previous APK files
+          rm -rf badge-magic-*
 
-          rm -rf badge-magic-$branch*
+          # Copy new APK and AAB files
+          cp ../build/app/outputs/flutter-apk/app-release.apk ./badge-magic-${{ needs.common.outputs.VERSION_NAME }}.apk
+          cp ../build/app/outputs/bundle/app-release.aab ./badge-magic-${{ needs.common.outputs.VERSION_NAME }}.aab
 
-          ls
-
-          echo "Copying new build files"
-
-          find ../build/app/outputs/flutter-apk -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp -v {} . \;
-          find ../build/app/outputs/bundle -type f \( -name '*.apk' -o -name '*.aab' \) -exec cp -v {} . \;
-
-          ls
-
-          echo "Renaming new build files"
-
-          for file in app*; do
-            mv $file badge-magic-$branch-${file#*-}
-          done
-
-          ls
-
-          echo "Pushing to apk branch"
-
-          git checkout --orphan temporary
+          # Push updated files to apk branch
           git add --all .
-          git commit -am "[Auto] Update APK/AAB's from $branch ($(date +%Y-%m-%d.%H:%M:%S))"
-          git branch -D apk
-          git branch -m apk
+          git commit -am "[Auto] Updated APK/AABs for version ${{ needs.common.outputs.VERSION_NAME }}"
           git push --force origin apk
 
-      - name: Setup Ruby
-        if: ${{ github.repository == 'fossasia/badgemagic-android' }}
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-          bundler-cache: true
-      
-      - name: Prepare Bundler
-        if: ${{ github.repository == 'fossasia/badgemagic-android' }}
-        run: |
-          bundle config path vendor/bundle
-          bundle install --jobs 4 --retry 3
-      
-      - name: Push app in closed testing track
-        if: ${{ github.repository == 'fossasia/badgemagic-android' }}
-        run: |
-          bundle exec fastlane uploadToClosedTesting
-          if [[ $? -ne 0 ]]; then
-              exit 1
-          fi
-
-  ios:
-    name: iOS Flutter Build
-    needs: common
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: iOS Workflow
-        uses: ./.github/actions/ios
-        with:
-          VERSION_NAME: ${{needs.common.outputs.VERSION_NAME}}
-          VERSION_CODE: ${{needs.common.outputs.VERSION_CODE}}
-  
-  update-release:
-    name: Update Draft Release
-    needs: [common, android, ios]
+  delete-apk-branch:
+    name: Delete APK Branch
     runs-on: ubuntu-latest
+    needs: android
+    if: always() # Ensures deletion even if the build fails
     steps:
-      - name: Run Release Drafter
-        uses: release-drafter/release-drafter@v6
+      - name: Delete APK Branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          version: ${{ needs.common.outputs.VERSION_NAME }}
-
-  screenshots:
-    name: Screenshots (Android)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Android Screenshot Workflow
-        uses: ./.github/actions/screenshot-android
-        with:
-          ANDROID_EMULATOR_API: ${{ env.ANDROID_EMULATOR_API }}
-          ANDROID_EMULATOR_ARCH: ${{ env.ANDROID_EMULATOR_ARCH }}
+        run: |
+          git push origin --delete apk
